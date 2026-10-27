@@ -381,7 +381,7 @@ function trafficStart(cover) {
   T.cls = $('tcls').value; T.act = $('tact').value || '활동'; T.cover = !!cover;
   startMic().then(function () {
     go('traffic'); document.body.classList.add('dark-mode'); liveStart();
-    T.on = true; T.n = 0; T.sum = 0; T.green = 0; T.t0 = Date.now(); T.iv = setInterval(trafficTick, 30000); trafficTick();
+    T.on = true; T.n = 0; T.sum = 0; T.green = 0; T.t0 = Date.now(); T.iv = setInterval(trafficTick, 30000); T.first = setTimeout(trafficTick, 5000); // 마이크가 안정된 뒤 첫 기록
     if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { T.lock = l; }).catch(function () {});
   }).catch(function (e) { toast('마이크를 허용해 주세요: ' + e.message); });
 }
@@ -396,7 +396,7 @@ function trafficTick() {
   call('logClassroom', { code: S.tcode, cls: T.cls, lesson: S.t.lesson, activity: T.act, score: v }).catch(function () { toast('기록 전송이 안 됐어요(인터넷 확인)'); });
 }
 function trafficStop() {
-  T.on = false; clearInterval(T.iv); liveStop(); if (T.lock) { try { T.lock.release(); } catch (e) {} T.lock = null; }
+  T.on = false; clearInterval(T.iv); clearTimeout(T.first); liveStop(); if (T.lock) { try { T.lock.release(); } catch (e) {} T.lock = null; }
   toast('기록을 끝냈어요: ' + T.n + '번'); go('tdash');
 }
 
