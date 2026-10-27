@@ -26,7 +26,7 @@ var CLS_COLORS = ['#ff7a8a', '#ffad42', '#ffd23f', '#2fd6a6', '#4fb3ff', '#9b8cf
 var S = { data: null, cls: '', num: '', lesson: 1, step: 1, sound: '', place: '', predict: 0, result: null, tcode: '', t: null, screen: '' };
 var A = { ctx: null, an: null, buf: null, stream: null, raf: 0, on: false, smooth: 0 };
 var T = { on: false, iv: 0, n: 0, sum: 0, green: 0, t0: 0, cls: '', act: '', cover: false, lock: null };
-var ICONS_READY = false;
+var ICONS_READY = true;
 
 /* ---------------- 작은 도구 ---------------- */
 function $(id) { return document.getElementById(id); }
@@ -198,10 +198,10 @@ SCREENS.home = function () {
     '<div class="lessons mt">';
   for (var i = 1; i <= 6; i++) h += '<button data-lesson="' + i + '" class="' + (i === S.lesson ? 'on' : '') + '"><b>' + i + '</b>' + LESSONS[i].e + ' ' + (i === S.data.lesson ? '오늘' : '차시') + '</button>';
   h += '</div><div class="tiles mt2">' +
-    '<button class="tile" data-act="book"><span class="em">📒</span>내 탐정 수첩</button>' +
-    '<button class="tile" data-act="map"><span class="em">🗺️</span>소리 지도</button>' +
-    '<button class="tile" data-act="letters"><span class="em">💌</span>띵동이 편지</button>' +
-    '<button class="tile" data-act="stamps"><span class="em">⭐</span>발소리 지킴이</button></div></div>';
+    '<button class="tile" data-act="book"><img src="assets/icon_medal.png" alt="">내 탐정 수첩</button>' +
+    '<button class="tile" data-act="map"><img src="assets/icon_school.png" alt="">소리 지도</button>' +
+    '<button class="tile" data-act="letters"><img src="assets/icon_letter.png" alt="">띵동이 편지</button>' +
+    '<button class="tile" data-act="stamps"><img src="assets/icon_steps.png" alt="">발소리 지킴이</button></div></div>';
   return h;
 };
 
@@ -217,7 +217,7 @@ SCREENS.measure = function () {
     sounds.forEach(function (s) { var ic = iconFor(s); h += '<button class="snd" data-sound="' + esc(s) + '">' + (ic ? '<img src="' + ic + '" alt="">' : '<span class="em">' + esc(emojiOf(s)) + '</span>') + esc(nameOf(s)) + '</button>'; });
     h += '</div>';
   } else if (S.step === 2) {
-    h += '<h2 class="q-title">' + esc(nameOf(S.sound)) + ' — 내 귀에는 어떻게 들려요? 👂</h2><div class="faces">' +
+    h += '<div class="talk" style="justify-content:center"><img class="ding float" src="assets/kid_boy.png" alt="" style="width:110px"><div class="bubble"><b>' + esc(nameOf(S.sound)) + '</b> — 귀를 쫑긋! 내 귀에는 어떻게 들려요? 👂</div></div><div class="faces mt">' +
       [1, 2, 3].map(function (k) { return '<button class="face ' + LV[k].c + '" data-predict="' + k + '"><img src="' + LV[k].img + '" alt="">' + LV[k].f + ' ' + LV[k].n + '</button>'; }).join('') + '</div>' +
       '<p class="center muted mt">먼저 귀로 느끼고, 그다음 기계로 재요!</p>';
   } else if (S.step === 3) {
@@ -228,7 +228,7 @@ SCREENS.measure = function () {
       '<div id="micbox" class="mt"></div><div class="center mt"><button class="btn-big pink" id="goBtn" data-act="measureNow">🎤 재기 시작!</button></div></div>';
   } else {
     var r = S.result, L = LV[r.level], P = LV[S.predict];
-    h += '<div class="panel"><div class="result"><div class="center"><img class="ding-big" src="' + L.img + '" alt="띵동이"></div><div>' +
+    h += '<div class="panel"><div class="result"><div class="center" style="position:relative"><img class="ding-big" src="' + L.img + '" alt="띵동이"><img src="assets/' + (r.match ? 'kid_girl' : 'kid_boy') + '.png" alt="" style="position:absolute;right:0;bottom:-10px;width:28%"></div><div>' +
       '<div class="muted" style="font-size:24px">' + esc(nameOf(S.sound)) + '</div><div class="row"><span class="big-num">' + r.score + '</span><span class="badge-lv ' + L.c + '">' + L.f + ' ' + L.n + '</span></div>' +
       '<div class="cmp"><div>내 귀 👂<b>' + P.f + '</b>' + P.n + '</div><div>기계 🎤<b><span class="dot ' + L.c + '" style="width:40px;height:40px"></span></b>' + L.n + '</div></div>' +
       (r.match ? '<div class="verdict same">⭐ 귀와 기계가 똑같아요! 멋진 귀 탐정!</div>' : '<div class="verdict diff">🔎 귀와 기계가 달랐어요! 탐정이 새로운 걸 발견했어요!</div>') +
@@ -435,7 +435,6 @@ document.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.t
 /* ---------------- 시작 ---------------- */
 function boot() {
   var u = store('sd_user'); if (u && u.cls && u.num) { S.cls = u.cls; S.num = u.num; }
-  var probe = new Image(); probe.onload = function () { ICONS_READY = true; if (S.screen === 'measure' || S.screen === 'map') go(S.screen); }; probe.src = 'assets/icon_clap.png';
   S.data = { lesson: 1, classes: 6, size: 30, green: 50, yellow: 65, sounds: {}, stamps: [] };
   go('title');
   call('getAppData').then(function (d) { S.data = d; S.lesson = d.lesson || 1; if (S.screen === 'title') go('title'); flushOutbox(); })
