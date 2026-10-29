@@ -61,10 +61,10 @@ function call(fn) {
     .then(function (r) { return r.json(); })
     .then(function (j) { if (!j.ok) throw new Error(j.error || '서버 오류'); return j.result; });
 }
-// 저장 실패 대비 보관함: 인터넷이 끊겨도 기록이 사라지지 않게 크롬북에 모아 두었다가 다시 보내요.
+// 저장 실패 대비 보관함: 인터넷이 끊겨도 기록이 사라지지 않게 기기에 모아 두었다가 다시 보내요.
 function outbox() { return store('sd_outbox') || []; }
 function sendMeasure(p) {
-  return call('saveMeasure', p).catch(function () { var o = outbox(); o.push(p); store('sd_outbox', o); toast('인터넷이 약해요. 기록은 크롬북에 보관했다가 다시 보낼게요 📦'); return null; });
+  return call('saveMeasure', p).catch(function () { var o = outbox(); o.push(p); store('sd_outbox', o); toast('인터넷이 약해요. 기록은 이 기기에 보관했다가 다시 보낼게요 📦'); return null; });
 }
 function flushOutbox() {
   var o = outbox(); if (!o.length) return;
@@ -73,7 +73,7 @@ function flushOutbox() {
 }
 setInterval(flushOutbox, 20000);
 
-/* ---------------- 내 탐정 수첩(크롬북 + 시트) ---------------- */
+/* ---------------- 내 탐정 수첩(기기 + 시트) ---------------- */
 function bookKey() { return 'sd_book_' + S.cls + '_' + S.num; }
 function book() { return store(bookKey()) || []; }
 function addBook(r) { var b = book(); b.push(r); store(bookKey(), b); return b; }
@@ -88,18 +88,26 @@ var BADGES = [
 function badgesOf(b) { return BADGES.filter(function (x) { return x.ok(b); }).map(function (x) { return x.k; }); }
 
 /* ---------------- 마이크 ---------------- */
+function micAlive() { // 패드는 화면이 꺼지거나 다른 앱에 다녀오면 마이크가 끊겨요 → 다시 켜기
+  try { var t = A.stream && A.stream.getAudioTracks()[0]; return !!(t && t.readyState === 'live' && t.enabled); } catch (e) { return false; }
+}
 function startMic() {
-  if (A.an) { if (A.ctx && A.ctx.state === 'suspended') A.ctx.resume(); return Promise.resolve(true); }
+  // 아이패드(사파리)는 '누른 순간'에 소리 장치를 만들어야 해서, 마이크를 묻기 전에 먼저 만들어 둬요.
+  try { A.ctx = A.ctx || new (window.AudioContext || window.webkitAudioContext)(); if (A.ctx.state !== 'running') A.ctx.resume(); } catch (e) {}
+  if (A.an && micAlive()) return Promise.resolve(true);
+  if (A.stream) { try { A.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} A.stream = null; A.an = null; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.reject(new Error('nomic'));
   return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false }).then(function (stream) {
     A.stream = stream; A.ctx = A.ctx || new (window.AudioContext || window.webkitAudioContext)();
-    if (A.ctx.state === 'suspended') A.ctx.resume();
+    if (A.ctx.state !== 'running') A.ctx.resume();
     var src = A.ctx.createMediaStreamSource(stream); A.an = A.ctx.createAnalyser(); A.an.fftSize = 2048; A.an.smoothingTimeConstant = 0; src.connect(A.an);
-    A.buf = new Float32Array(A.an.fftSize); return true;
+    A.buf = new Float32Array(A.an.fftSize); A.bbuf = new Uint8Array(A.an.fftSize); return true;
   });
 }
 function levelNow() {
-  if (!A.an) return 0; A.an.getFloatTimeDomainData(A.buf); var s = 0;
+  if (!A.an) return 0; var s = 0;
+  if (A.an.getFloatTimeDomainData) A.an.getFloatTimeDomainData(A.buf);
+  else { A.an.getByteTimeDomainData(A.bbuf); for (var j = 0; j < A.bbuf.length; j++) A.buf[j] = (A.bbuf[j] - 128) / 128; } // 오래된 아이패드
   for (var i = 0; i < A.buf.length; i++) s += A.buf[i] * A.buf[i];
   var rms = Math.sqrt(s / A.buf.length), db = 20 * Math.log10(rms + 1e-7);
   return Math.max(0, Math.min(100, Math.round(db + 100)));
@@ -135,10 +143,28 @@ function drawGauge(v) {
   var t = $('gval'); if (t) t.textContent = v;
   var l = $('glab'); if (l) { var L = levelOf(v); l.textContent = LV[L].f + ' ' + LV[L].n; l.style.color = L === 1 ? '#0f7a3c' : L === 2 ? '#9a6a00' : '#b3172b'; }
 }
+// 어떤 기기·브라우저인지 알아서 마이크 켜는 방법을 다르게 안내해요.
+function deviceKind() {
+  var u = navigator.userAgent || '';
+  if (/KAKAOTALK|NAVER\(|Instagram|FBAN|FBAV|Line\/|DaumApps|; wv\)/i.test(u)) return 'inapp';
+  var ios = /iPad|iPhone|iPod/.test(u) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios) return 'ios';
+  if (/CrOS/.test(u)) return 'cros';
+  if (/Android/.test(u)) return /SamsungBrowser/.test(u) ? 'samsung' : 'android';
+  return 'pc';
+}
+var MIC_HOW = {
+  cros: '주소창 오른쪽의 🎤 표시를 누르고 <b>‘허용’</b>을 골라요.',
+  pc: '주소창 오른쪽의 🎤 표시를 누르고 <b>‘허용’</b>을 골라요.',
+  android: '주소창 왼쪽의 <b>설정(자물쇠) 표시</b> → <b>권한</b> → <b>마이크 ‘허용’</b>을 골라요.',
+  samsung: '주소창 왼쪽의 <b>자물쇠 표시</b> → <b>권한</b> → <b>마이크 ‘허용’</b>을 골라요.',
+  ios: '주소창 왼쪽의 <b>‘가가’(aA) 표시</b> → <b>웹 사이트 설정</b> → <b>마이크 ‘허용’</b>을 골라요.',
+  inapp: '이 창(카톡·네이버 등)에서는 마이크가 안 켜져요. <b>크롬</b>이나 <b>사파리</b>로 다시 열어 주세요.'
+};
 function micFail(e) {
   liveStop();
   var box = $('micbox'); var msg = '<div class="mic-help"><img src="assets/ding_curious.png" alt="" style="width:90px"><div><b>마이크를 켜 주세요!</b><br>' +
-    '주소창 오른쪽의 🎤 표시를 누르고 <b>‘허용’</b>을 골라요. 그다음 아래 단추를 다시 눌러요.<br><small class="muted">(' + esc(e && e.message || e) + ')</small></div></div>';
+    MIC_HOW[deviceKind()] + ' 그다음 아래 단추를 다시 눌러요.<br><small class="muted">(' + esc(e && e.message || e) + ')</small></div></div>';
   if (box) box.innerHTML = msg; else toast('마이크를 켜 주세요(허용).');
 }
 
@@ -168,6 +194,7 @@ SCREENS.title = function () {
     '<div class="eng">SOUND DETECTIVES</div>' +
     '<div class="lead">귀로 <b>느끼고</b>, 기계로 <b>재요!</b><br>보이지 않는 소리를 숫자와 색으로 찾아내는 탐정 놀이</div>' +
     '<button class="btn-big start float" data-act="start">🔍 탐정 출발!</button>' +
+    (deviceKind() === 'inapp' ? '<div class="me"><span class="chip" style="background:#fff3c4;color:#5a3d00">⚠️ 카톡·네이버 창에서는 마이크가 안 켜져요. 크롬이나 사파리로 열어 주세요.</span></div>' : '') +
     (S.cls ? '<div class="me"><span class="chip">🕵️ ' + esc(S.cls) + '반 ' + esc(S.num) + '번 탐정</span> <button class="chip btn" data-act="relogin" style="background:rgba(25,14,62,.55);color:#fff">🔁 반·번호 바꾸기</button></div>' : '') +
     '<div class="menu">' +
     '<button class="chip btn" data-act="book">📒 내 탐정 수첩</button>' +
@@ -267,6 +294,8 @@ function finish(samples) {
   ding(1320, .3);
   if (!samples.length || !A.an) { toast('소리가 안 들어왔어요. 다시 해 봐요!'); go('measure'); return; }
   var avg = Math.round(samples.reduce(function (a, b) { return a + b; }, 0) / samples.length), mx = Math.max.apply(null, samples), score = Math.round((avg + mx) / 2);
+  // 조용한 교실도 0점은 나오지 않아요. 0점이면 마이크가 멈춘 것(패드 화면 꺼짐 등)이라 기록하지 않고 다시 재요.
+  if (mx === 0) { liveStop(); toast('마이크가 쉬고 있었어요. 단추를 다시 눌러 주세요 🎤'); try { A.ctx && A.ctx.resume(); } catch (e) {} if (A.stream) { try { A.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} } A.an = null; go('measure'); return; }
   var level = levelOf(score), match = level === S.predict;
   var before = badgesOf(book());
   var b = addBook({ t: Date.now(), lesson: S.lesson, sound: S.sound, predict: S.predict, score: score, level: level, match: match });
@@ -274,7 +303,7 @@ function finish(samples) {
   var badge = nb ? BADGES.filter(function (x) { return x.k === nb; })[0] : null;
   S.result = { score: score, avg: avg, max: mx, level: level, match: match, newBadge: badge ? badge.e + ' ' + badge.n : '' };
   sendMeasure({ cls: S.cls, num: S.num, lesson: S.lesson, sound: S.sound, place: S.place, predict: S.predict, score: score, avg: avg, max: mx,
-    device: (navigator.userAgent.indexOf('CrOS') >= 0 ? 'Chromebook' : '기타') + '·새앱' });
+    device: ({ cros: 'Chromebook', ios: 'iPad', samsung: 'Android패드', android: 'Android패드', pc: 'PC', inapp: '앱속창' })[deviceKind()] + '·새앱' });
   liveStop(); S.step = 4; go('measure');
 }
 
@@ -292,7 +321,7 @@ SCREENS.book = function () {
     });
     h += '</tbody></table>';
   }
-  return h + '<p class="center muted" style="font-size:16px">수첩은 이 크롬북에도, 선생님 기록 시트에도 함께 저장돼요.</p></div></div>';
+  return h + '<p class="center muted" style="font-size:16px">수첩은 이 기기(크롬북·패드)에도, 선생님 기록 시트에도 함께 저장돼요.</p></div></div>';
 };
 
 SCREENS.map = function () {
@@ -345,8 +374,8 @@ function toggleStamp(k) {
 /* ---------------- 선생님 ---------------- */
 SCREENS.tlogin = function () {
   return topbar('title') + '<div class="wrap"><div class="panel" style="max-width:560px;margin:0 auto"><h2 class="q-title">🔑 선생님 화면</h2>' +
-    '<div class="row" style="justify-content:center"><input class="txt" id="tcode" type="password" placeholder="교사 코드" style="width:220px"><button class="btn-soft" data-act="tlogin">들어가기</button></div>' +
-    '<p class="center muted" style="font-size:16px">교사 코드는 연구 데이터 시트 ‘설정’의 값과 같아요.</p></div></div>';
+    // 코드는 화면에 숫자로 나오지 않게 ●로 가리고, 기기가 비밀번호로 기억하거나 자동으로 채우지 않게 해요.
+    '<div class="row" style="justify-content:center"><input class="txt secret" id="tcode" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="●●●●" aria-label="선생님 코드" style="width:220px"><button class="btn-soft" data-act="tlogin">들어가기</button></div></div></div>';
 };
 SCREENS.tdash = function () {
   var t = S.t, h = topbar('title') + '<div class="wrap"><div class="t-grid"><div class="panel"><h2 class="q-title">📚 오늘의 차시</h2><div class="lessons">';
@@ -440,5 +469,7 @@ function boot() {
   call('getAppData').then(function (d) { S.data = d; S.lesson = d.lesson || 1; if (S.screen === 'title') go('title'); flushOutbox(); })
     .catch(function () { toast('인터넷 연결을 확인해 주세요 🌐'); });
 }
+['pointerdown', 'touchend'].forEach(function (ev) { document.addEventListener(ev, function () { try { if (A.ctx && A.ctx.state !== 'running') A.ctx.resume(); } catch (e) {} }, { passive: true }); });
+window.__sd = { deviceKind: deviceKind, micAlive: micAlive, startMic: startMic, levelNow: levelNow, A: A }; // 점검용
 boot();
 })();
